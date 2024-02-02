@@ -1,6 +1,35 @@
 import cv2
 import numpy as np
 import os
+import argparse
+import logging
+
+def tensorflow_shutup():
+    """
+    Make Tensorflow less verbose
+    """
+    try:
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+        # noinspection PyPackageRequirements
+        import tensorflow as tf
+        from tensorflow.python.util import deprecation
+
+        tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
+        # Monkey patching deprecation utils to shut it up! Maybe good idea to disable this once after upgrade
+        # noinspection PyUnusedLocal
+        def deprecated(date, instructions, warn_once=True):  # pylint: disable=unused-argument
+            def deprecated_wrapper(func):
+                return func
+            return deprecated_wrapper
+
+        deprecation.deprecated = deprecated
+
+    except ImportError:
+        pass
+
+tensorflow_shutup()
 from keras import models
 
 
@@ -95,14 +124,15 @@ def handling_image(path, letter_count):
     shrunken_image = cv2.erode(thresh1, kernel, iterations=1)
     # imshow(shrunken_image)
     shrunken_image = invert_colors_if_white(shrunken_image)
-    height, width = shrunken_image.shape
-    x_shrunk, y_shrunk = 2, 4
-    cut_image = shrunken_image[y_shrunk:height - y_shrunk, x_shrunk: width - x_shrunk]
-    bordered_image = cv2.copyMakeBorder(cut_image, y_shrunk, y_shrunk, x_shrunk, x_shrunk,
-                                         cv2.BORDER_CONSTANT, value=[0, 0, 0])
+    # height, width = shrunken_image.shape
+    # x_shrunk, y_shrunk = 2, 4
+    # cut_image = shrunken_image[y_shrunk:height - y_shrunk, x_shrunk: width - x_shrunk]
+    # bordered_image = cv2.copyMakeBorder(cut_image, y_shrunk, y_shrunk, x_shrunk, x_shrunk,
+    #                                      cv2.BORDER_CONSTANT, value=[0, 0, 0])
     # bordered_image = cv2.rectangle(shrunken_image, (0, 0), (width - 1, height - 1), 0, 6)
 
     # reader = easyocr.Reader(['en'])
+    bordered_image = shrunken_image
 
     contours, _ = cv2.findContours(bordered_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     image_array = []
@@ -172,9 +202,11 @@ def rename_images(base_path, dif_image, same_img):
 
 
 def img_to_letter(images):
-    model = models.load_model('my_model.keras')
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'my_model.keras')
+    model = models.load_model(model_path)
     # imshow(images[3])
-    predicts = model.predict(images)
+    # predicts = model.predict(images)
+    predicts = model.predict(images, verbose=None)
     p = np.array(predicts)
     text = ""
     for i in p:
@@ -191,20 +223,32 @@ def image_to_text(path: str, letter_count: int):
 
 
 if __name__ == '__main__':
-    images = os.listdir('data')
-    images = ["data/" + image for image in images]
-    right = 0
-    wrong = 0
-    filter_problem = 0
-    for image in images:
-        print(image + ":")
-        text = image_to_text(image, 6)
-        print(text)
-        print("------------")
-        if text == "":
-            filter_problem += 1
-        elif text == image[5:11]:
-            right += 1
-        else:
-            wrong += 1
-    print(f"wrong= {wrong}, right={right}, filter_problem={filter_problem}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', dest='path', type=str, help='path of the image')
+    parser.add_argument('-n', dest='letter_count', type=int, help='number of letters')
+    args = parser.parse_args()
+
+    if args.letter_count is not None and args.path is not None:
+        print(image_to_text(args.path, args.letter_count))
+
+
+
+
+    ## for testing
+    # images = os.listdir('data')
+    # images = ["data/" + image for image in images]
+    # right = 0
+    # wrong = 0
+    # filter_problem = 0
+    # for image in images:
+    #     print(image + ":")
+    #     text = image_to_text(image, 6)
+    #     print(text)
+    #     print("------------")
+    #     if text == "":
+    #         filter_problem += 1
+    #     elif text == image[5:11]:
+    #         right += 1
+    #     else:
+    #         wrong += 1
+    # print(f"wrong= {wrong}, right={right}, filter_problem={filter_problem}")
