@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 )
@@ -24,7 +25,41 @@ const (
 	DIFFERENT_IMAGE = 16
 )
 
+const captchaSolverPath = "./dist/main"
+
+// TODO make it multi thread
+func solveCaptcha(imagePath string, letterCount int) (string, error) {
+	cmd := exec.Command(captchaSolverPath, "-i", "/home/mhs/GolandProjects/captcha-solver/captcha.jpg", "-n", strconv.Itoa(letterCount))
+	cmd.Stdin = os.Stdin
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		return "", errors.New(fmt.Sprintf("Error starting the executable: %v\n", err))
+	}
+
+	// Wait for the command to finish
+	if err := cmd.Wait(); err != nil {
+		return "", errors.New(fmt.Sprintf("Error waiting for the executable to finish: %v\n", err))
+	}
+	// Check for any errors in stderr
+	if stderrBuf.Len() > 0 {
+		return "", errors.New(fmt.Sprintf("Error running command: %s", stderrBuf.String()))
+	}
+
+	// Retrieve the output from stdout buffer
+	output := stdoutBuf.String()
+	if output == "" || output == "\n" {
+		return "", errors.New("couldn't recognize the text from image")
+	}
+
+	return output, nil
+}
+
 func main() {
+	//solveCaptcha("image", 6)
 	login("2312", "sdfsdfds")
 	//creatingData()
 }
@@ -47,7 +82,7 @@ func login(username string, password string) {
 		os.Exit(1)
 	}
 
-	captcha, err := solvingCaptcha(&client, "captcha")
+	captcha, err := solvingCaptcha(&client, "captcha.jpg")
 	if err != nil {
 		fmt.Printf("trying to solve captcha error: %s\n", err)
 		os.Exit(1)
@@ -130,12 +165,12 @@ func solvingCaptcha(client *http.Client, imageName string) (string, error) {
 			return "", errors.New(fmt.Sprintf("GettingCaptchaResponse error: %s\n", err))
 		}
 
-		err = storingImage(captchaBody, "captcha")
+		err = storingImage(captchaBody, imageName)
 		if err != nil {
 			return "", errors.New(fmt.Sprintf("StoringImage error: %s\n", err))
 		}
-		// TODO fill it with getting form ai
-		text = "something"
+		text, err = solveCaptcha(imageName, 6)
+		fmt.Println(err)
 	}
 	if counter >= 20 {
 		return "", errors.New("too many attempt to solve this captcha")
@@ -168,7 +203,7 @@ func creatingData() {
 				os.Exit(1)
 			}
 
-			err = storingImage(captchaBody, fmt.Sprintf("./data/%d_%d", i, j))
+			err = storingImage(captchaBody, fmt.Sprintf("./data/%d_%d.jpg", i, j))
 			if err != nil {
 				fmt.Printf("StoringImage error: %s\n", err)
 				os.Exit(1)
@@ -230,12 +265,12 @@ func sendingCaptchaRequest(client *http.Client) ([]byte, error) {
 }
 
 func storingImage(image []byte, name string) error {
-	fullName := name + ".jpg"
-	err := os.Remove(fullName)
-	if err != nil && err.Error() != "remove "+fullName+": The system cannot find the file specified." {
+	err := os.Remove(name)
+
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	err = ioutil.WriteFile(fullName, image, 0)
+	err = ioutil.WriteFile(name, image, 0644)
 	if err != nil {
 		return err
 	}
