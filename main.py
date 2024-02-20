@@ -3,6 +3,13 @@ import numpy as np
 import os
 import argparse
 import logging
+from fastapi import FastAPI, Form, File, UploadFile
+from fastapi.responses import PlainTextResponse
+from PIL import Image
+import io
+import time
+import uvicorn
+
 
 def tensorflow_shutup():
     """
@@ -22,12 +29,14 @@ def tensorflow_shutup():
         def deprecated(date, instructions, warn_once=True):  # pylint: disable=unused-argument
             def deprecated_wrapper(func):
                 return func
+
             return deprecated_wrapper
 
         deprecation.deprecated = deprecated
 
     except ImportError:
         pass
+
 
 tensorflow_shutup()
 from keras import models
@@ -83,6 +92,7 @@ def resizeToNormal(image, x_mean_letter, y_mean_letter):
 
     return image
 
+
 def invert_colors_if_white(image):
     # Calculate the percentage of white pixels
     white_pixels = np.sum(image > 128)
@@ -102,17 +112,12 @@ def imshow(img):
         cv2.destroyAllWindows()
 
 
-
-def handling_image(path, letter_count):
-    img = cv2.imread(path)
-    if img is None:
-        return None
-    y_img, x_img, _ = img.shape
+def handling_image(image, letter_count):
+    y_img, x_img, _ = image.shape
     x_mean_letter = int(x_img / letter_count)
     y_mean_letter = y_img
 
-    image = img
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     ret, thresh1 = cv2.threshold(img, 120, 255, cv2.THRESH_BINARY +
                                  cv2.THRESH_OTSU)
 
@@ -215,40 +220,59 @@ def img_to_letter(images):
     return text
 
 
-def image_to_text(path: str, letter_count: int):
-    images = handling_image(path, letter_count)
+def image_to_text(image, letter_count: int):
+    if image is None:
+        return ""
+    images = handling_image(image, letter_count)
     if images is None:
         return ""
     return img_to_letter(images / 255)
 
 
+app = FastAPI()
+@app.post("/process_image")
+async def process_image(image_bytes: bytes = File(...), number: int = Form(...)):
+    try:
+        # Decode image array and create PIL Image
+        image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        opencvImage = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+
+        cv2.imwrite(filename="hi.jpg", img=opencvImage)
+
+        response_text = image_to_text(opencvImage, number)
+    except:
+        response_text = ""
+    return PlainTextResponse(content=response_text)
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-i', dest='path', type=str, help='path of the image')
-    parser.add_argument('-n', dest='letter_count', type=int, help='number of letters')
-    args = parser.parse_args()
+    # uvicorn.run(app, port=8888)
 
-    if args.letter_count is not None and args.path is not None:
-        print(image_to_text(args.path, args.letter_count))
-
-
+    ## for single captcha
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('-i', dest='path', type=str, help='path of the image')
+    # parser.add_argument('-n', dest='letter_count', type=int, help='number of letters')
+    # args = parser.parse_args()
+    #
+    # if args.letter_count is not None and args.path is not None:
+    #     print(image_to_text(args.path, args.letter_count))
 
 
     ## for testing
-    # images = os.listdir('data')
-    # images = ["data/" + image for image in images]
-    # right = 0
-    # wrong = 0
-    # filter_problem = 0
-    # for image in images:
-    #     print(image + ":")
-    #     text = image_to_text(image, 6)
-    #     print(text)
-    #     print("------------")
-    #     if text == "":
-    #         filter_problem += 1
-    #     elif text == image[5:11]:
-    #         right += 1
-    #     else:
-    #         wrong += 1
-    # print(f"wrong= {wrong}, right={right}, filter_problem={filter_problem}")
+    images = os.listdir('data')
+    images = ["data/" + image for image in images]
+    right = 0
+    wrong = 0
+    filter_problem = 0
+    for image in images:
+        print(image + ":")
+        img = cv2.imread(image)
+        text = image_to_text(img, 6)
+        print(text)
+        print("------------")
+        if text == "":
+            filter_problem += 1
+        elif text == image[5:11]:
+            right += 1
+        else:
+            wrong += 1
+    print(f"wrong= {wrong}, right={right}, filter_problem={filter_problem}")
